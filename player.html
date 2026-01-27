@@ -26,7 +26,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-  const v = document.getElementById('v');
+  const videoEl = document.getElementById('v');
   const inp = document.getElementById('src');
   const msg = document.getElementById('msg');
 
@@ -35,36 +35,96 @@
     return u.searchParams.get(name) || '';
   }
 
+  // base64url -> string
+  function b64DecodeUnicode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    const decoded = atob(str);
+    try {
+      return decodeURIComponent(
+        Array.prototype.map.call(decoded, c =>
+          '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+        ).join('')
+      );
+    } catch {
+      return decoded;
+    }
+  }
+
+  function normalizeUrl(u) {
+    if (!u) return '';
+    // sometimes + becomes space after copy/paste in some contexts
+    u = u.replace(/\s/g, '').replace(/\+/g, '%20');
+    return u;
+  }
+
+  function getSrcSmart() {
+    // 1) hidden variant: #v=BASE64URL
+    const hash = (location.hash || '').replace(/^#/, '');
+    const hp = new URLSearchParams(hash);
+    const token = hp.get('v');
+    if (token) return normalizeUrl(b64DecodeUnicode(token));
+
+    // 2) fallback: ?src=
+    const q = getParam('src');
+    if (!q) return '';
+
+    // decode once
+    try {
+      return normalizeUrl(decodeURIComponent(q));
+    } catch {
+      return normalizeUrl(q);
+    }
+  }
+
   function play(url){
     msg.textContent = '';
-    if(!url){ msg.textContent = 'No URL provided.'; return; }
+    url = normalizeUrl(url);
+
+    if(!url){
+      msg.textContent = 'No URL provided.';
+      return;
+    }
+
     inp.value = url;
 
     // Safari/iOS often plays HLS natively
-    if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      v.src = url;
-      v.play().catch(()=>{});
+    if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = url;
+      videoEl.play().catch(()=>{});
       return;
     }
 
     // Other browsers (incl. Firefox): hls.js
     if (window.Hls && Hls.isSupported()) {
+      // reuse: destroy previous instance if any
+      if (window.__hls) {
+        try { window.__hls.destroy(); } catch {}
+        window.__hls = null;
+      }
+
       const hls = new Hls();
+      window.__hls = hls;
+
       hls.loadSource(url);
-      hls.attachMedia(v);
+      hls.attachMedia(videoEl);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        videoEl.play().catch(()=>{});
+      });
+
       hls.on(Hls.Events.ERROR, function(_, data){
         msg.textContent = 'Playback error. Possible CORS/permissions issue on the CDN.';
       });
-      v.play().catch(()=>{});
     } else {
       msg.textContent = 'Your browser cannot play HLS here.';
     }
   }
 
   document.getElementById('play').onclick = ()=>play(inp.value.trim());
-  const src = decodeURIComponent(getParam('src'));
+
+  const src = getSrcSmart();
   if (src) play(src);
 </script>
 </body>
 </html>
-
