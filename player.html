@@ -8,24 +8,64 @@
     body{font-family:system-ui,Arial;margin:24px;background:#111;color:#eee}
     .wrap{max-width:960px;margin:0 auto}
     video{width:100%;max-height:70vh;background:#000}
-    .hint{opacity:.8;margin-top:10px;font-size:14px}
-    input{width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#1b1b1b;color:#eee}
-    button{padding:10px 14px;border-radius:8px;border:0;background:#2d6cdf;color:#fff;cursor:pointer;margin-top:10px}
+    .hint{opacity:.85;margin-top:10px;font-size:14px}
+    /* Hide URL input + manual controls */
+    #src, #play, .hint.manual { display:none !important; }
+
+    /* Password overlay */
+    #lock{
+      position:fixed; inset:0; background:rgba(0,0,0,.92);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+    }
+    #lock .card{
+      max-width:360px; width:90%; text-align:center;
+      background:#111; border:1px solid #333; border-radius:14px;
+      padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.5);
+    }
+    #lock h2{margin:0 0 10px 0; font-size:20px}
+    #pw{
+      width:100%; padding:12px; border-radius:10px; border:1px solid #333;
+      background:#1b1b1b; color:#eee;
+    }
+    #unlock{width:100%; margin-top:10px; padding:10px 14px; border-radius:10px; border:0; background:#2d6cdf; color:#fff; cursor:pointer}
+    #pwmsg{margin-top:10px; opacity:.9; color:#ffb3b3; min-height:18px}
   </style>
 </head>
 <body>
+
+<!-- Password gate -->
+<div id="lock">
+  <div class="card">
+    <h2>Enter password</h2>
+    <input id="pw" type="password" placeholder="Password" />
+    <button id="unlock">Unlock</button>
+    <div id="pwmsg"></div>
+  </div>
+</div>
+
 <div class="wrap">
   <h2>Playback</h2>
   <video id="v" controls playsinline></video>
 
-    <div class="hint" id="msg"></div>
+  <!-- kept in DOM but hidden by CSS above -->
+  <div class="hint manual">If it doesn’t start, paste the .m3u8 URL here:</div>
+  <input id="src" placeholder="https://.../stream.m3u8" />
+  <button id="play">Play</button>
+  <div class="hint" id="msg"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
+  const PASSWORD = "TRO2025";
+
   const videoEl = document.getElementById('v');
   const inp = document.getElementById('src');
   const msg = document.getElementById('msg');
+
+  const lock = document.getElementById('lock');
+  const pw = document.getElementById('pw');
+  const unlock = document.getElementById('unlock');
+  const pwmsg = document.getElementById('pwmsg');
 
   function getParam(name){
     const u = new URL(window.location.href);
@@ -50,8 +90,8 @@
 
   function normalizeUrl(u) {
     if (!u) return '';
-    // sometimes + becomes space after copy/paste in some contexts
-    u = u.replace(/\s/g, '').replace(/\+/g, '%20');
+    // remove accidental spaces/newlines
+    u = u.replace(/\s/g, '');
     return u;
   }
 
@@ -65,8 +105,6 @@
     // 2) fallback: ?src=
     const q = getParam('src');
     if (!q) return '';
-
-    // decode once
     try {
       return normalizeUrl(decodeURIComponent(q));
     } catch {
@@ -94,7 +132,7 @@
 
     // Other browsers (incl. Firefox): hls.js
     if (window.Hls && Hls.isSupported()) {
-      // reuse: destroy previous instance if any
+      // destroy previous instance if any
       if (window.__hls) {
         try { window.__hls.destroy(); } catch {}
         window.__hls = null;
@@ -118,11 +156,27 @@
     }
   }
 
-  document.getElementById('play').onclick = ()=>play(inp.value.trim());
+  function setUnlocked() {
+    lock.style.display = "none";
+    const src = getSrcSmart();
+    if (src) play(src);
+  }
 
-  const src = getSrcSmart();
-  if (src) play(src);
+  function tryUnlock() {
+    if (pw.value === PASSWORD) {
+      pwmsg.textContent = "";
+      setUnlocked();
+    } else {
+      pwmsg.textContent = "Wrong password";
+      pw.select();
+    }
+  }
+
+  unlock.onclick = tryUnlock;
+  pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+
+  // If user clicks the hidden play button (just in case)
+  document.getElementById('play').onclick = ()=>play(inp.value.trim());
 </script>
 </body>
 </html>
-
