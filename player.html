@@ -9,8 +9,12 @@
     .wrap{max-width:960px;margin:0 auto}
     video{width:100%;max-height:70vh;background:#000}
     .hint{opacity:.85;margin-top:10px;font-size:14px}
+
     /* Hide URL input + manual controls */
     #src, #play, .hint.manual { display:none !important; }
+
+    /* Hide message area (we keep it for debugging if needed) */
+    #msg { display:none !important; }
 
     /* Password overlay */
     #lock{
@@ -29,12 +33,30 @@
     }
     #unlock{width:100%; margin-top:10px; padding:10px 14px; border-radius:10px; border:0; background:#2d6cdf; color:#fff; cursor:pointer}
     #pwmsg{margin-top:10px; opacity:.9; color:#ffb3b3; min-height:18px}
-    #msg {
-  display: none;
-}
+
+    /* Access denied overlay (no src) */
+    #deny{
+      position:fixed; inset:0; background:rgba(0,0,0,.94);
+      display:none; align-items:center; justify-content:center; z-index:10000;
+    }
+    #deny .card{
+      max-width:520px; width:92%; text-align:center;
+      background:#111; border:1px solid #333; border-radius:14px;
+      padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.5);
+    }
+    #deny h2{margin:0 0 8px 0; font-size:18px}
+    #deny p{margin:0; opacity:.85; font-size:14px; line-height:1.4}
   </style>
 </head>
 <body>
+
+<!-- Access denied (shown if opened without a trailer link) -->
+<div id="deny">
+  <div class="card">
+    <h2>Access denied</h2>
+    <p>Please open this player using an official Trailer link.</p>
+  </div>
+</div>
 
 <!-- Password gate -->
 <div id="lock">
@@ -70,6 +92,8 @@
   const unlock = document.getElementById('unlock');
   const pwmsg = document.getElementById('pwmsg');
 
+  const deny = document.getElementById('deny');
+
   function getParam(name){
     const u = new URL(window.location.href);
     return u.searchParams.get(name) || '';
@@ -93,7 +117,6 @@
 
   function normalizeUrl(u) {
     if (!u) return '';
-    // remove accidental spaces/newlines
     u = u.replace(/\s/g, '');
     return u;
   }
@@ -115,15 +138,27 @@
     }
   }
 
+  // Only allow .m3u8 sources
+  function isAllowedSrc(u) {
+    return typeof u === 'string' && /\.m3u8(\?|#|$)/i.test(u);
+  }
+
+  function showDenied() {
+    // Hide password UI and player controls; show deny overlay
+    lock.style.display = "none";
+    deny.style.display = "flex";
+    // Ensure nothing plays
+    try { videoEl.pause(); } catch {}
+    videoEl.removeAttribute('src');
+    videoEl.load();
+  }
+
   function play(url){
+    // keep silent
     msg.textContent = '';
     url = normalizeUrl(url);
 
-    if(!url){
-      msg.textContent = 'No URL provided.';
-      return;
-    }
-
+    if(!url) return;
     inp.value = url;
 
     // Safari/iOS often plays HLS natively
@@ -135,7 +170,6 @@
 
     // Other browsers (incl. Firefox): hls.js
     if (window.Hls && Hls.isSupported()) {
-      // destroy previous instance if any
       if (window.__hls) {
         try { window.__hls.destroy(); } catch {}
         window.__hls = null;
@@ -151,24 +185,32 @@
         videoEl.play().catch(()=>{});
       });
 
+      // Silence errors
       hls.on(Hls.Events.ERROR, function(_, data){
-        msg.textContent = 'Playback error. Possible CORS/permissions issue on the CDN.';
+        // do nothing
       });
     } else {
-      msg.textContent = 'Your browser cannot play HLS here.';
+      // no message
     }
   }
 
-  function setUnlocked() {
+  function setUnlockedAndPlay() {
     lock.style.display = "none";
     const src = getSrcSmart();
-    if (src) play(src);
+
+    // If opened without a trailer link OR link is not .m3u8 => deny
+    if (!src || !isAllowedSrc(src)) {
+      showDenied();
+      return;
+    }
+
+    play(src);
   }
 
   function tryUnlock() {
     if (pw.value === PASSWORD) {
       pwmsg.textContent = "";
-      setUnlocked();
+      setUnlockedAndPlay();
     } else {
       pwmsg.textContent = "Wrong password";
       pw.select();
@@ -178,10 +220,17 @@
   unlock.onclick = tryUnlock;
   pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
 
-  // If user clicks the hidden play button (just in case)
+  // If someone opens the page without a valid trailer link, don't even offer password.
+  // (This prevents using the player as a generic HLS tool.)
+  (function precheck(){
+    const src = getSrcSmart();
+    if (!src || !isAllowedSrc(src)) {
+      showDenied();
+    }
+  })();
+
+  // Hidden manual play (kept for safety)
   document.getElementById('play').onclick = ()=>play(inp.value.trim());
 </script>
 </body>
 </html>
-
-
